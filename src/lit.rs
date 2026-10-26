@@ -1,8 +1,10 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+use std::fmt;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Var(pub u32);
 
 /// Literal codificado como 2*var + (1 se negado).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Lit(u32);
 
 impl Var {
@@ -21,4 +23,40 @@ impl Lit {
 impl std::ops::Not for Lit {
     type Output = Lit;
     fn not(self) -> Lit { Lit(self.0 ^ 1) }
+}
+
+/// `Var(3)` aparece como `x3`.
+impl fmt::Display for Var {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "x{}", self.0) }
+}
+
+impl fmt::Debug for Var {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
+/// `Var(3).pos()` aparece como `x3` e `Var(3).neg()` como `¬x3`.
+impl fmt::Display for Lit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_neg() {
+            write!(f, "¬")?;
+        }
+        write!(f, "{}", self.var())
+    }
+}
+
+impl fmt::Debug for Lit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formatting() {
+        let b = Var(1);
+        assert_eq!(b.to_string(), "x1");
+        assert_eq!(b.neg().to_string(), "¬x1");
+        assert_eq!(format!("{:?}", [b.pos(), !b.pos(), Var(0).neg()]), "[x1, ¬x1, ¬x0]");
+    }
 }
