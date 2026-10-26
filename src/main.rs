@@ -3,6 +3,9 @@ mod game;
 mod runner;
 mod solver;
 mod ui;
+mod lit;
+mod cnf;
+mod encode;
 
 use std::io::BufRead;
 use std::time::{Duration, Instant};
