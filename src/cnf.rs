@@ -36,9 +36,16 @@ pub trait SatSolver {
     /// `assumptions` são literais forçados só nesta chamada.
     fn solve(&mut self, cnf: &Cnf, assumptions: &[Lit]) -> SatResult;
 }
+#[derive(Debug)]
+pub enum Conflict {
+    /// Literal que causou a contradição.
+    Lit(Lit),
+    /// Cláusula vazia.
+    EmptyClause,
+}
 
 /// Valor de cada variável durante a busca, indexado por `Var::index()`.
-/// `None` = ainda sem valor. (Pode virar um enum próprio se preferir.)
+/// `None` = ainda sem valor.
 type Assignment = Vec<Option<bool>>;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,8 +92,8 @@ fn lit_value(assignment: &Assignment, lit: Lit) -> Option<bool> {
 
 /// Regra 2: torna `lit` verdadeiro, ou seja, `lit.var()` recebe `!lit.is_neg()`.
 /// Retorna `false` se `lit` já era falso (contradição); `true` caso contrário.
-#[cfg_attr(cfg, must_use)]
-fn assign(assignment: &mut Assignment, lit: Lit) -> bool {
+#[must_use]
+fn assign(assignment: Assignment, lit: Lit) -> Result<Assignment, Conflict> {
     // Três casos, olhando `lit_value(assignment, lit)`:
     //   Some(true)  -> já está certo, nada a fazer
     //   Some(false) -> contradição
@@ -104,6 +111,7 @@ fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
 }
 
 /// Propagação unitária até ponto fixo. Retorna `false` se encontrar conflito.
+#[must_use]
 fn propagate(cnf: &Cnf, assignment: &mut Assignment) -> bool {
     // loop {
     //   changed = false
@@ -121,7 +129,32 @@ fn propagate(cnf: &Cnf, assignment: &mut Assignment) -> bool {
 /// DPLL recursivo. Some(atribuição que satisfaz tudo) ou None se Unsat.
 /// Recebe a atribuição por valor: cada nível da recursão tem sua cópia,
 /// então "voltar atrás" é só descartar a cópia.
-fn search(cnf: &Cnf, mut assignment: Assignment) -> Option<Assignment> {
+fn search(cnf: &Cnf, mut assignments: Assignment) -> Option<Assignment> {
+    if  !propagate(cnf, &mut assignments) {
+        return None;
+    }
+
+    for (i, assignment) in assignments.iter().enumerate() {
+        if assignment.is_none() {
+            let decision = Var(i as u32).pos();
+            
+            let assign_pos = assign(assignments.clone(), decision);
+            let assign_neg = assign(assignments.clone(), !decision);
+
+            if assign_pos.is_ok() {
+                if let Some(result) = search(cnf, assign_pos.unwrap()) {
+                    return Some(result);
+                }
+            }
+            if assign_neg.is_ok() {
+                if let Some(result) = search(cnf, assign_neg.unwrap()) {
+                    return Some(result);
+                }
+            }
+            break;
+        }
+    }
+    return None;
     // 1. `propagate`. Conflito -> None.
     //
     // 2. Procure uma cláusula que não esteja Satisfied.
@@ -136,6 +169,55 @@ fn search(cnf: &Cnf, mut assignment: Assignment) -> Option<Assignment> {
     //
     // 5. Ramo 2: `assign(!decisão)` na atribuição original, `search`.
     //    Retorna o que vier (Some ou None).
-    todo!()
+    // todo!()
 }
         
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Padrão 1-2-1. Única solução: a = V, b = F, c = V.
+    ///   1. (a ∨ b)
+    ///   2. (¬a ∨ ¬b)
+    ///   3. (¬a ∨ ¬b ∨ ¬c)
+    ///   4. (a ∨ c)
+    ///   5. (b ∨ c)
+    ///   6. (¬b ∨ ¬c)
+    fn one_two_one() -> (Cnf, Var, Var, Var) {
+        let mut cnf = Cnf::default();
+        let (a, b, c) = (cnf.new_var(), cnf.new_var(), cnf.new_var());
+        cnf.add_clause([a.pos(), b.pos()]);
+        cnf.add_clause([a.neg(), b.neg()]);
+        cnf.add_clause([a.neg(), b.neg(), c.neg()]);
+        cnf.add_clause([a.pos(), c.pos()]);
+        cnf.add_clause([b.pos(), c.pos()]);
+        cnf.add_clause([b.neg(), c.neg()]);
+        (cnf, a, b, c)
+    }
+
+    #[test]
+    fn baseline() {
+        let (cnf, a, b, c) = one_two_one();
+        println!("{:?}", cnf.clauses());
+
+        // Atribuição parcial: só a = V.
+        let mut assignment: Assignment = vec![None; cnf.num_vars()];
+        assignment[a.index()] = Some(true);
+        assert_eq!(lit_value(&assignment, a.pos()), Some(true));
+        assert_eq!(lit_value(&assignment, a.neg()), Some(false));
+        assert_eq!(lit_value(&assignment, b.pos()), None);
+        assert_eq!(lit_value(&assignment, !c.neg()), None);
+
+        let res = search(&cnf, assignment);
+
+        println!("Result: {:?}", res);
+
+        // Próximos passos, conforme for implementando:
+        //   assign(b.neg()) e conferir assignment[b.index()]
+        //   clause_state da cláusula 2 com a = V -> Unit(¬b)
+        //   propagate -> b = F, c = V
+        //   NaiveSolver.solve(&cnf, &[]) -> Sat com a = V, b = F, c = V
+        //   NaiveSolver.solve(&cnf, &[b.pos()]) -> Unsat (b é segura)
+    }
+}

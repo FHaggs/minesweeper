@@ -5,7 +5,7 @@ pub struct Var(pub u32);
 
 /// Literal codificado como 2*var + (1 se negado).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Lit(u32);
+pub struct Lit(pub u32);
 
 impl Var {
     pub fn pos(self) -> Lit { Lit(self.0 << 1) }
