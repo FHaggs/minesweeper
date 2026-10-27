@@ -92,7 +92,6 @@ fn lit_value(assignment: &Assignment, lit: Lit) -> Option<bool> {
 
 /// Regra 2: torna `lit` verdadeiro, ou seja, `lit.var()` recebe `!lit.is_neg()`.
 /// Retorna `false` se `lit` já era falso (contradição); `true` caso contrário.
-#[must_use]
 fn assign(assignment: Assignment, lit: Lit) -> Result<Assignment, Conflict> {
     // Três casos, olhando `lit_value(assignment, lit)`:
     //   Some(true)  -> já está certo, nada a fazer
@@ -139,22 +138,22 @@ fn search(cnf: &Cnf, mut assignments: Assignment) -> Option<Assignment> {
             let decision = Var(i as u32).pos();
             
             let assign_pos = assign(assignments.clone(), decision);
-            let assign_neg = assign(assignments.clone(), !decision);
-
-            if assign_pos.is_ok() {
-                if let Some(result) = search(cnf, assign_pos.unwrap()) {
+            if let Ok(assign_pos_res) = assign_pos {
+                if let Some(result) = search(cnf, assign_pos_res) {
                     return Some(result);
                 }
-            }
-            if assign_neg.is_ok() {
-                if let Some(result) = search(cnf, assign_neg.unwrap()) {
+            } 
+
+            let assign_neg = assign(assignments.clone(), !decision);
+            if let Ok(assign_neg_res) = assign_neg {
+                if let Some(result) = search(cnf, assign_neg_res) {
                     return Some(result);
                 }
             }
             break;
         }
     }
-    return None;
+    return Some(assignments);
     // 1. `propagate`. Conflito -> None.
     //
     // 2. Procure uma cláusula que não esteja Satisfied.
