@@ -110,8 +110,7 @@ fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
 }
 
 /// Propagação unitária até ponto fixo. Retorna `false` se encontrar conflito.
-#[must_use]
-fn propagate(cnf: &Cnf, assignment: &mut Assignment) -> bool {
+fn propagate(cnf: &Cnf, assignment: Assignment) -> Result<Assignment, Conflict> {
     // loop {
     //   changed = false
     //   para cada cláusula em `cnf.clauses()`:
@@ -128,10 +127,11 @@ fn propagate(cnf: &Cnf, assignment: &mut Assignment) -> bool {
 /// DPLL recursivo. Some(atribuição que satisfaz tudo) ou None se Unsat.
 /// Recebe a atribuição por valor: cada nível da recursão tem sua cópia,
 /// então "voltar atrás" é só descartar a cópia.
-fn search(cnf: &Cnf, mut assignments: Assignment) -> Option<Assignment> {
-    if  !propagate(cnf, &mut assignments) {
-        return None;
-    }
+fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
+    let assignments = match propagate(cnf, assignments) {
+        Ok(assignments) => assignments,
+        Err(_) => return None,
+    } ;
 
     for (i, assignment) in assignments.iter().enumerate() {
         if assignment.is_none() {
