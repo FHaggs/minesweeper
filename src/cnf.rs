@@ -97,31 +97,68 @@ fn assign(assignment: Assignment, lit: Lit) -> Result<Assignment, Conflict> {
     //   Some(true)  -> já está certo, nada a fazer
     //   Some(false) -> contradição
     //   None        -> grava o valor
-    todo!()
+    let index = lit.var().index();
+    match lit_value(&assignment, lit) {
+        Some(true) => Ok(assignment),
+        Some(false) => Err(Conflict::Lit(lit)),
+        None => {
+            let mut new_assignment = assignment;
+            new_assignment[index] = Some(!lit.is_neg());
+            Ok(new_assignment)
+        }
+    }
 }
 
 /// Classifica a cláusula olhando o valor de cada literal (regra 1).
 fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
+    let mut unassigned_count: u32 = 0;
+    let mut last_unassigned_lit = None;
+    for lit in clause {
+        match lit_value(assignment, *lit) {
+            Some(true) => return ClauseState::Satisfied,
+            Some(false) => continue,
+            None => {
+                unassigned_count += 1;
+                last_unassigned_lit = Some(*lit);
+            }
+        }
+    }
     // Percorra os literais contando quantos estão sem valor e guardando o
     // último deles. Um literal verdadeiro já decide: Satisfied.
     // No fim: 0 sem valor -> Conflict, 1 -> Unit(ele), 2+ -> Unresolved.
     // Cuidado: cláusula vazia é Conflict.
-    todo!()
+    match unassigned_count {
+        0 => ClauseState::Conflict,
+        1 => ClauseState::Unit(last_unassigned_lit.unwrap()),
+        _ => ClauseState::Unresolved,
+    }
 }
 
 /// Propagação unitária até ponto fixo. Retorna `false` se encontrar conflito.
-fn propagate(cnf: &Cnf, assignment: Assignment) -> Result<Assignment, Conflict> {
-    // loop {
-    //   changed = false
-    //   para cada cláusula em `cnf.clauses()`:
-    //     Conflict  -> return false
-    //     Unit(lit) -> assign(lit), changed = true
-    //     resto     -> segue
-    //   se !changed -> return true
-    // }
-    // Uma passada só não basta: uma atribuição pode tornar unitária uma
-    // cláusula que já foi visitada nesta mesma passada.
-    todo!()
+fn propagate(cnf: &Cnf, mut assignment: Assignment) -> Result<Assignment, Conflict> {
+    loop {
+        let mut changed = false;
+        for clause in cnf.clauses()  {
+            match clause_state(&assignment, clause) {
+                ClauseState::Satisfied => continue,
+                ClauseState::Conflict => return Err(Conflict::EmptyClause),
+                ClauseState::Unit(lit) => {
+                    let result = assign(assignment, lit);
+                    match result {
+                        Ok(new_assignment) => {
+                            assignment = new_assignment;
+                            changed = true;
+                        }
+                        Err(conflict) => return Err(conflict),
+                    }
+                },
+                ClauseState::Unresolved => continue,
+            }
+        }
+        if !changed {
+            return Ok(assignment);
+        }
+    }
 }
 
 /// DPLL recursivo. Some(atribuição que satisfaz tudo) ou None se Unsat.
@@ -131,7 +168,7 @@ fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
     let assignments = match propagate(cnf, assignments) {
         Ok(assignments) => assignments,
         Err(_) => return None,
-    } ;
+    };
 
     for (i, assignment) in assignments.iter().enumerate() {
         if assignment.is_none() {
@@ -150,7 +187,7 @@ fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
                     return Some(result);
                 }
             }
-            break;
+            return None;
         }
     }
     return Some(assignments);
