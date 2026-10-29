@@ -12,8 +12,12 @@ impl Cnf {
         self.num_vars += 1;
         v
     }
-    pub fn num_vars(&self) -> usize { self.num_vars as usize }
-    pub fn clauses(&self) -> &[Vec<Lit>] { &self.clauses }
+    pub fn num_vars(&self) -> usize {
+        self.num_vars as usize
+    }
+    pub fn clauses(&self) -> &[Vec<Lit>] {
+        &self.clauses
+    }
 
     pub fn add_clause(&mut self, lits: impl IntoIterator<Item = Lit>) {
         self.clauses.push(lits.into_iter().collect());
@@ -23,8 +27,12 @@ impl Cnf {
 pub struct Model(Vec<bool>);
 
 impl Model {
-    pub fn value(&self, v: Var) -> bool { self.0[v.index()] }
-    pub fn lit(&self, l: Lit) -> bool { self.value(l.var()) != l.is_neg() }
+    pub fn value(&self, v: Var) -> bool {
+        self.0[v.index()]
+    }
+    pub fn lit(&self, l: Lit) -> bool {
+        self.value(l.var()) != l.is_neg()
+    }
 }
 
 pub enum SatResult {
@@ -76,7 +84,27 @@ impl SatSolver for NaiveSolver {
         // 4. Some(atribuição) -> Sat(Model(...)): troque cada `None` que
         //    sobrou por `false` (todas as cláusulas já estão satisfeitas,
         //    então tanto faz). None -> Unsat.
-        todo!()
+
+        let mut assignment: Assignment = vec![None; cnf.num_vars()];
+        for &lit in assumptions {
+            match assign(assignment.clone(), lit) {
+                Ok(new_assignment) => assignment = new_assignment,
+                Err(_) => return SatResult::Unsat,
+            }
+        }
+        let result = search(cnf, assignment);
+        match result {
+            Some(assignments) => {
+                let model = Model(
+                    assignments
+                        .into_iter()
+                        .map(|v| v.unwrap_or(false))
+                        .collect(),
+                );
+                SatResult::Sat(model)
+            }
+            None => SatResult::Unsat,
+        }
     }
 }
 
@@ -124,7 +152,10 @@ fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
     }
     match unassigned_count {
         0 => ClauseState::Conflict,
-        1 => ClauseState::Unit(last_unassigned_lit.expect("last_unassigned_lit should be Some if unassigned_count is 1")),
+        1 => ClauseState::Unit(
+            last_unassigned_lit
+                .expect("last_unassigned_lit should be Some if unassigned_count is 1"),
+        ),
         _ => ClauseState::Unresolved,
     }
 }
@@ -135,13 +166,13 @@ fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
 fn propagate(cnf: &Cnf, mut assignment: Assignment) -> Result<Assignment, Conflict> {
     loop {
         let mut changed = false;
-        for clause in cnf.clauses()  {
+        for clause in cnf.clauses() {
             match clause_state(&assignment, clause) {
                 ClauseState::Conflict => return Err(Conflict::EmptyClause),
                 ClauseState::Unit(lit) => {
                     assignment = assign(assignment, lit)?;
                     changed = true;
-                },
+                }
                 _ => continue,
             }
         }
@@ -170,13 +201,13 @@ fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
     for (i, assignment) in assignments.iter().enumerate() {
         if assignment.is_none() {
             let decision = Var(i as u32).pos();
-            
+
             let assign_pos = assign(assignments.clone(), decision);
             if let Ok(assign_pos_res) = assign_pos {
                 if let Some(result) = search(cnf, assign_pos_res) {
                     return Some(result);
                 }
-            } 
+            }
 
             let assign_neg = assign(assignments.clone(), !decision);
             if let Ok(assign_neg_res) = assign_neg {
