@@ -36,11 +36,13 @@ pub trait SatSolver {
     /// `assumptions` são literais forçados só nesta chamada.
     fn solve(&mut self, cnf: &Cnf, assumptions: &[Lit]) -> SatResult;
 }
+
+/// Motivo pelo qual uma atribuição ficou impossível.
 #[derive(Debug)]
 pub enum Conflict {
-    /// Literal que causou a contradição.
+    /// Tentou tornar verdadeiro um literal que já era falso.
     Lit(Lit),
-    /// Cláusula vazia.
+    /// Uma cláusula ficou com todos os literais falsos.
     EmptyClause,
 }
 
@@ -81,7 +83,6 @@ impl SatSolver for NaiveSolver {
 /// Regra 1: valor do literal = valor da variável, invertido se negado.
 /// `None` se a variável ainda não tem valor.
 fn lit_value(assignment: &Assignment, lit: Lit) -> Option<bool> {
-    // Use `lit.var().index()` para achar a posição e `lit.is_neg()` para o sinal.
     let index = lit.var().index();
     let var_value = assignment[index];
     match var_value {
@@ -91,25 +92,23 @@ fn lit_value(assignment: &Assignment, lit: Lit) -> Option<bool> {
 }
 
 /// Regra 2: torna `lit` verdadeiro, ou seja, `lit.var()` recebe `!lit.is_neg()`.
-/// Retorna `false` se `lit` já era falso (contradição); `true` caso contrário.
-fn assign(assignment: Assignment, lit: Lit) -> Result<Assignment, Conflict> {
-    // Três casos, olhando `lit_value(assignment, lit)`:
-    //   Some(true)  -> já está certo, nada a fazer
-    //   Some(false) -> contradição
-    //   None        -> grava o valor
+/// Se `lit` já era verdadeiro, devolve a atribuição sem mudanças.
+/// `Err(Conflict::Lit)` se `lit` já era falso.
+fn assign(mut assignment: Assignment, lit: Lit) -> Result<Assignment, Conflict> {
     let index = lit.var().index();
     match lit_value(&assignment, lit) {
         Some(true) => Ok(assignment),
         Some(false) => Err(Conflict::Lit(lit)),
         None => {
-            let mut new_assignment = assignment;
-            new_assignment[index] = Some(!lit.is_neg());
-            Ok(new_assignment)
+            assignment[index] = Some(!lit.is_neg());
+            Ok(assignment)
         }
     }
 }
 
 /// Classifica a cláusula olhando o valor de cada literal (regra 1).
+/// Só dá para concluir `Unresolved` no fim: um literal mais adiante ainda
+/// pode ser verdadeiro. Cláusula vazia é `Conflict`.
 fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
     let mut unassigned_count: u32 = 0;
     let mut last_unassigned_lit = None;
@@ -123,36 +122,27 @@ fn clause_state(assignment: &Assignment, clause: &[Lit]) -> ClauseState {
             }
         }
     }
-    // Percorra os literais contando quantos estão sem valor e guardando o
-    // último deles. Um literal verdadeiro já decide: Satisfied.
-    // No fim: 0 sem valor -> Conflict, 1 -> Unit(ele), 2+ -> Unresolved.
-    // Cuidado: cláusula vazia é Conflict.
     match unassigned_count {
         0 => ClauseState::Conflict,
-        1 => ClauseState::Unit(last_unassigned_lit.unwrap()),
+        1 => ClauseState::Unit(last_unassigned_lit.expect("last_unassigned_lit should be Some if unassigned_count is 1")),
         _ => ClauseState::Unresolved,
     }
 }
 
-/// Propagação unitária até ponto fixo. Retorna `false` se encontrar conflito.
+/// Propagação unitária até ponto fixo: repete as passadas até que nenhuma
+/// cláusula unitária reste, pois cada atribuição pode tornar unitária uma
+/// cláusula já visitada. `Err` se alguma cláusula ficar toda falsa.
 fn propagate(cnf: &Cnf, mut assignment: Assignment) -> Result<Assignment, Conflict> {
     loop {
         let mut changed = false;
         for clause in cnf.clauses()  {
             match clause_state(&assignment, clause) {
-                ClauseState::Satisfied => continue,
                 ClauseState::Conflict => return Err(Conflict::EmptyClause),
                 ClauseState::Unit(lit) => {
-                    let result = assign(assignment, lit);
-                    match result {
-                        Ok(new_assignment) => {
-                            assignment = new_assignment;
-                            changed = true;
-                        }
-                        Err(conflict) => return Err(conflict),
-                    }
+                    assignment = assign(assignment, lit)?;
+                    changed = true;
                 },
-                ClauseState::Unresolved => continue,
+                _ => continue,
             }
         }
         if !changed {
@@ -164,6 +154,13 @@ fn propagate(cnf: &Cnf, mut assignment: Assignment) -> Result<Assignment, Confli
 /// DPLL recursivo. Some(atribuição que satisfaz tudo) ou None se Unsat.
 /// Recebe a atribuição por valor: cada nível da recursão tem sua cópia,
 /// então "voltar atrás" é só descartar a cópia.
+///
+/// Cada chamada decide só a primeira variável livre; as demais ficam para as
+/// chamadas mais fundas. Saídas:
+///   - conflito na propagação           -> None
+///   - nenhuma variável livre           -> Some (tudo atribuído, sem conflito)
+///   - um dos ramos achou solução       -> Some
+///   - os dois ramos falharam           -> None
 fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
     let assignments = match propagate(cnf, assignments) {
         Ok(assignments) => assignments,
@@ -191,23 +188,7 @@ fn search(cnf: &Cnf, assignments: Assignment) -> Option<Assignment> {
         }
     }
     return Some(assignments);
-    // 1. `propagate`. Conflito -> None.
-    //
-    // 2. Procure uma cláusula que não esteja Satisfied.
-    //    Nenhuma -> Some(assignment): achou um modelo.
-    //
-    // 3. Dessa cláusula, pegue um literal sem valor: essa é a decisão.
-    //    (Depois de `propagate` ela não é Conflict nem Unit, então existe
-    //    pelo menos um literal livre.)
-    //
-    // 4. Ramo 1: clone, `assign(decisão)`, `search` recursivo.
-    //    Se deu Some -> retorna.
-    //
-    // 5. Ramo 2: `assign(!decisão)` na atribuição original, `search`.
-    //    Retorna o que vier (Some ou None).
-    // todo!()
 }
-        
 
 #[cfg(test)]
 mod tests {
@@ -249,10 +230,9 @@ mod tests {
 
         println!("Result: {:?}", res);
 
-        // Próximos passos, conforme for implementando:
-        //   assign(b.neg()) e conferir assignment[b.index()]
-        //   clause_state da cláusula 2 com a = V -> Unit(¬b)
-        //   propagate -> b = F, c = V
+        // Próximos passos:
+        //   trocar o println acima por assert_eq! com a = V, b = F, c = V
+        //   search partindo de b = V -> None (b é segura)
         //   NaiveSolver.solve(&cnf, &[]) -> Sat com a = V, b = F, c = V
         //   NaiveSolver.solve(&cnf, &[b.pos()]) -> Unsat (b é segura)
     }
