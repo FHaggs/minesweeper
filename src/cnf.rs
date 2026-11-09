@@ -7,6 +7,11 @@ pub struct Cnf {
 }
 
 impl Cnf {
+    /// Monta o CNF de uma vez: variáveis `0..num_vars` e as cláusulas dadas.
+    pub fn new(num_vars: usize, clauses: Vec<Vec<Lit>>) -> Self {
+        Cnf { num_vars: num_vars as u32, clauses }
+    }
+
     pub fn new_var(&mut self) -> Var {
         let v = Var(self.num_vars);
         self.num_vars += 1;
